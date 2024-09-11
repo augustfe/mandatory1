@@ -1,7 +1,8 @@
 import numpy as np
 import sympy as sp
-import scipy.sparse as sparse
+from scipy import sparse
 from scipy.sparse import diags_array, eye_array, kron
+from scipy.sparse.linalg import spsolve
 
 x, y = sp.symbols("x,y")
 
@@ -16,6 +17,9 @@ class Poisson2D:
     The Dirichlet values depend on the chosen manufactured solution.
 
     """
+
+    h: float
+    N: int
 
     def __init__(self, L: float, ue: sp.Function) -> None:
         """Initialize Poisson solver for the method of manufactured solutions
@@ -45,6 +49,7 @@ class Poisson2D:
 
         self.xij, self.yij = np.meshgrid(xi, yj, indexing="ij", sparse=True)
         self.h = self.L / N
+        self.N = N
 
     def D2(self) -> sparse.dia_array:
         """Return second order differentiation matrix.
@@ -76,20 +81,38 @@ class Poisson2D:
 
         return laplace.tocsr()
 
-    def get_boundary_indices(self):
+    def get_boundary_indices(self) -> np.ndarray:
         """Return indices of vectorized matrix that belongs to the boundary"""
-        raise NotImplementedError
 
-    def assemble(self):
+        toprow = np.arange(self.N + 1)
+        bottomrow = np.arange(self.N + 1) + self.N * (self.N + 1)
+
+        leftcol = np.arange(0, self.N**2 + 1, self.N + 1)
+        rightcol = np.arange(self.N, self.N**2 + 1, self.N + 1)
+
+        bnds = np.concatenate([toprow, bottomrow, leftcol, rightcol])
+
+        return bnds
+
+    def assemble(self) -> tuple[sparse.csr_matrix, np.ndarray]:
         """Return assembled matrix A and right hand side vector b"""
-        # return A, b
-        raise NotImplementedError
+        A = self.laplace().tolil()
+        bnds = self.get_boundary_indices()
+        A[bnds] = 0
+        A[bnds, bnds] = 1
+        A = A.tocsr()
+
+        F = sp.lambdify((x, y), self.f)(self.xij, self.yij)
+        b = F.ravel()
+        b[bnds] = 0
+
+        return A, b
 
     def l2_error(self, u):
         """Return l2-error norm"""
         raise NotImplementedError
 
-    def __call__(self, N: int):
+    def __call__(self, N: int) -> np.ndarray:
         """Solve Poisson's equation.
 
         Parameters
@@ -104,7 +127,8 @@ class Poisson2D:
         """
         self.create_mesh(N)
         A, b = self.assemble()
-        self.U = sparse.linalg.spsolve(A, b.flatten()).reshape((N + 1, N + 1))
+        self.U = spsolve(A, b).reshape((N + 1, N + 1))
+
         return self.U
 
     def convergence_rates(
