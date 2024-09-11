@@ -91,6 +91,9 @@ class Poisson2D:
         rightcol = np.arange(self.N, self.N**2 + 1, self.N + 1)
 
         bnds = np.concatenate([toprow, bottomrow, leftcol, rightcol])
+        # B = np.ones((self.N + 1, self.N + 1), dtype=bool)
+        # B[1:-1, 1:-1] = 0
+        # bnds = np.where(B.ravel())[0]
 
         return bnds
 
@@ -98,6 +101,9 @@ class Poisson2D:
         """Return assembled matrix A and right hand side vector b"""
         A = self.laplace().tolil()
         bnds = self.get_boundary_indices()
+        # for i in bnds:
+        #     A[i, :] = 0
+        #     A[i, i] = 1
         A[bnds] = 0
         A[bnds, bnds] = 1
         A = A.tocsr()
@@ -108,9 +114,11 @@ class Poisson2D:
 
         return A, b
 
-    def l2_error(self, u):
+    def l2_error(self, u: np.ndarray) -> float:
         """Return l2-error norm"""
-        raise NotImplementedError
+        ue = sp.lambdify((x, y), self.ue)(self.xij, self.yij)
+        error = np.sqrt(self.h**2 * np.sum((u - ue) ** 2))
+        return error
 
     def __call__(self, N: int) -> np.ndarray:
         """Solve Poisson's equation.
@@ -160,9 +168,10 @@ class Poisson2D:
             np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i])
             for i in range(1, m + 1, 1)
         ]
+        print(E, h)
         return r, np.array(E), np.array(h)
 
-    def eval(self, x: float, y: float):
+    def eval(self, x: float, y: float) -> float:
         """Return u(x, y)
 
         Parameters
@@ -175,7 +184,11 @@ class Poisson2D:
         The value of u(x, y)
 
         """
-        raise NotImplementedError
+        i = int(x / self.h)
+        j = int(y / self.h)
+
+        print(f"{i=}, {j=}")
+        return self.U[i, j]
 
 
 def test_convergence_poisson2d() -> None:
@@ -183,6 +196,7 @@ def test_convergence_poisson2d() -> None:
     ue = sp.exp(sp.cos(4 * sp.pi * x) * sp.sin(2 * sp.pi * y))
     sol = Poisson2D(1, ue)
     r, *_ = sol.convergence_rates()
+    print(r)
     assert abs(r[-1] - 2) < 1e-2
 
 
