@@ -2,7 +2,8 @@ import numpy as np
 import sympy as sp
 import scipy.sparse as sparse
 
-x, y = sp.symbols('x,y')
+x, y = sp.symbols("x,y")
+
 
 class Poisson2D:
     r"""Solve Poisson's equation in 2D::
@@ -15,7 +16,7 @@ class Poisson2D:
 
     """
 
-    def __init__(self, L, ue):
+    def __init__(self, L: float, ue: sp.Function) -> None:
         """Initialize Poisson solver for the method of manufactured solutions
 
         Parameters
@@ -28,9 +29,9 @@ class Poisson2D:
         """
         self.L = L
         self.ue = ue
-        self.f = sp.diff(self.ue, x, 2)+sp.diff(self.ue, y, 2)
+        self.f = sp.diff(self.ue, x, 2) + sp.diff(self.ue, y, 2)
 
-    def create_mesh(self, N):
+    def create_mesh(self, N: int):
         """Create 2D mesh and store in self.xij and self.yij"""
         # self.xij, self.yij ...
         raise NotImplementedError
@@ -56,7 +57,7 @@ class Poisson2D:
         """Return l2-error norm"""
         raise NotImplementedError
 
-    def __call__(self, N):
+    def __call__(self, N: int):
         """Solve Poisson's equation.
 
         Parameters
@@ -71,10 +72,12 @@ class Poisson2D:
         """
         self.create_mesh(N)
         A, b = self.assemble()
-        self.U = sparse.linalg.spsolve(A, b.flatten()).reshape((N+1, N+1))
+        self.U = sparse.linalg.spsolve(A, b.flatten()).reshape((N + 1, N + 1))
         return self.U
 
-    def convergence_rates(self, m=6):
+    def convergence_rates(
+        self, m: int = 6
+    ) -> tuple[list[float], np.ndarray, np.ndarray]:
         """Compute convergence rates for a range of discretizations
 
         Parameters
@@ -97,10 +100,13 @@ class Poisson2D:
             E.append(self.l2_error(u))
             h.append(self.h)
             N0 *= 2
-        r = [np.log(E[i-1]/E[i])/np.log(h[i-1]/h[i]) for i in range(1, m+1, 1)]
+        r = [
+            np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i])
+            for i in range(1, m + 1, 1)
+        ]
         return r, np.array(E), np.array(h)
 
-    def eval(self, x, y):
+    def eval(self, x: float, y: float):
         """Return u(x, y)
 
         Parameters
@@ -115,17 +121,24 @@ class Poisson2D:
         """
         raise NotImplementedError
 
-def test_convergence_poisson2d():
+
+def test_convergence_poisson2d() -> None:
     # This exact solution is NOT zero on the entire boundary
-    ue = sp.exp(sp.cos(4*sp.pi*x)*sp.sin(2*sp.pi*y))
+    ue = sp.exp(sp.cos(4 * sp.pi * x) * sp.sin(2 * sp.pi * y))
     sol = Poisson2D(1, ue)
-    r, E, h = sol.convergence_rates()
-    assert abs(r[-1]-2) < 1e-2
+    r, *_ = sol.convergence_rates()
+    assert abs(r[-1] - 2) < 1e-2
 
-def test_interpolation():
-    ue = sp.exp(sp.cos(4*sp.pi*x)*sp.sin(2*sp.pi*y))
+
+def test_interpolation() -> None:
+    ue = sp.exp(sp.cos(4 * sp.pi * x) * sp.sin(2 * sp.pi * y))
     sol = Poisson2D(1, ue)
-    U = sol(100)
+    sol(100)
     assert abs(sol.eval(0.52, 0.63) - ue.subs({x: 0.52, y: 0.63}).n()) < 1e-3
-    assert abs(sol.eval(sol.h/2, 1-sol.h/2) - ue.subs({x: sol.h, y: 1-sol.h/2}).n()) < 1e-3
-
+    assert (
+        abs(
+            sol.eval(sol.h / 2, 1 - sol.h / 2)
+            - ue.subs({x: sol.h, y: 1 - sol.h / 2}).n()
+        )
+        < 1e-3
+    )
