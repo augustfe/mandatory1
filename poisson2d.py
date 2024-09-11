@@ -1,6 +1,7 @@
 import numpy as np
 import sympy as sp
 import scipy.sparse as sparse
+from scipy.sparse import diags_array, eye_array, kron
 
 x, y = sp.symbols("x,y")
 
@@ -31,18 +32,49 @@ class Poisson2D:
         self.ue = ue
         self.f = sp.diff(self.ue, x, 2) + sp.diff(self.ue, y, 2)
 
-    def create_mesh(self, N: int):
-        """Create 2D mesh and store in self.xij and self.yij"""
-        # self.xij, self.yij ...
-        raise NotImplementedError
+    def create_mesh(self, N: int) -> None:
+        """Create 2D mesh and store in self.xij and self.yij
 
-    def D2(self):
-        """Return second order differentiation matrix"""
-        raise NotImplementedError
+        Parameters
+        ----------
+        N : int
+            The number of uniform intervals in each direction
+        """
+        xi = np.linspace(0, self.L, N + 1)
+        yj = np.linspace(0, self.L, N + 1)
 
-    def laplace(self):
-        """Return vectorized Laplace operator"""
-        raise NotImplementedError
+        self.xij, self.yij = np.meshgrid(xi, yj, indexing="ij", sparse=True)
+        self.h = self.L / N
+
+    def D2(self) -> sparse.dia_array:
+        """Return second order differentiation matrix.
+
+        Returns
+        -------
+        The differentiation matrix as a sparse DIA matrix
+        """
+        D = diags_array(
+            [1, -2, 1],
+            offsets=[-1, 0, 1],
+            shape=(self.N + 1, self.N + 1),
+            format="lil",
+        )
+        D[0, :4] = [2, -5, 4, -1]
+        D[-1, -4:] = [-1, 4, -5, 2]
+
+        return D
+
+    def laplace(self) -> sparse.csr_array:
+        "Return vectorized Laplace operator"
+        identity = eye_array(self.N + 1)
+        D2 = self.D2()
+
+        D2x = 1.0 / self.h**2 * kron(D2, identity)
+        D2y = 1.0 / self.h**2 * kron(identity, D2)
+
+        laplace = D2x + D2y
+
+        return laplace.tocsr()
 
     def get_boundary_indices(self):
         """Return indices of vectorized matrix that belongs to the boundary"""
