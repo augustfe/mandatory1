@@ -1,0 +1,12 @@
+name: matmek4270
+channels:
+  - conda-forge
+dependencies:
+  - jupyter
+  - numpy
+  - scipy
+  - matplotlib
+  - sympy
+  - ipykernel
+  - plotly
+  - pandas
