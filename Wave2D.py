@@ -7,13 +7,14 @@ from scipy.sparse import diags_array
 # from matplotlib import cm
 
 from typing import Optional
+import pytest
 
 x, y, t = sp.symbols("x,y,t")
 
 
 class Wave2D:
 
-    def create_mesh(self, N: int, use_sparse: bool = False) -> None:
+    def create_mesh(self, N: int, use_sparse: bool = True) -> None:
         """Create 2D mesh and store in self.xij and self.yij"""
         # self.xji, self.yij = ...
         xi = np.linspace(0, 1, N + 1)
@@ -33,6 +34,7 @@ class Wave2D:
         )
         D[0, :4] = [2, -5, 4, -1]
         D[-1, -4:] = [-1, 4, -5, 2]
+        # D = D.todia()
 
         return D
 
@@ -41,7 +43,7 @@ class Wave2D:
         """Return the dispersion coefficient"""
         kx = sp.pi * self.mx
         ky = sp.pi * self.my
-        return self.c * sp.sqrt(kx**2 + ky**2)
+        return sp.sqrt(self.c**2 * (kx**2 + ky**2))
 
     def ue(self, mx: int, my: int) -> sp.Expr:
         """Return the exact standing wave"""
@@ -62,7 +64,7 @@ class Wave2D:
         self.U_prev[:] = init(self.xij, self.yij)
 
         self.U[:] = self.U_prev + 0.5 * (self.c * self.dt) ** 2 * (
-            self.D @ self.U_prev + self.U_prev @ self.D.T
+            self.D @ self.U_prev + self.U_prev @ (self.D.T)
         )
 
     @property
@@ -88,10 +90,10 @@ class Wave2D:
 
     def apply_bcs(self):
         """Apply Dirichlet boundary conditions"""
-        self.U_next[0, :] = 0
-        self.U_next[-1, :] = 0
-        self.U_next[:, 0] = 0
+        self.U_next[0] = 0
+        self.U_next[-1] = 0
         self.U_next[:, -1] = 0
+        self.U_next[:, 0] = 0
 
     def __call__(
         self,
@@ -139,6 +141,9 @@ class Wave2D:
 
         self.initialize(N, mx, my)
 
+        # courant = self.c * self.dt / self.h
+        # print(courant, self.c, self.dt, self.h)
+
         if store_data > 0:
             data = {0: self.U_prev.copy()}
         if store_data == 1:
@@ -148,7 +153,7 @@ class Wave2D:
             self.U_next[:] = (
                 2 * self.U
                 - self.U_prev
-                + (self.c * self.dt) ** 2 * (self.D @ self.U + self.U @ self.D.T)
+                + (self.c * self.dt) ** 2 * (self.D @ self.U + self.U @ (self.D.T))
             )
             self.apply_bcs()
 
@@ -161,7 +166,7 @@ class Wave2D:
         if store_data > 0:
             return data
 
-        return self.h, self.l2_error(self.U_next, Nt * self.dt)
+        return self.h, self.l2_error(self.U, Nt * self.dt)
 
     def convergence_rates(
         self, m: int = 4, cfl: float = 0.1, Nt: int = 10, mx: int = 3, my: int = 3
@@ -189,16 +194,13 @@ class Wave2D:
         E = []
         h = []
         N0 = 8
-        for m in range(m):
+        for i in range(m):
             dx, err = self(N0, Nt, cfl=cfl, mx=mx, my=my, store_data=-1)
             E.append(err)
             h.append(dx)
             N0 *= 2
             Nt *= 2
-        r = [
-            np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i])
-            for i in range(1, m + 1, 1)
-        ]
+        r = [np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i]) for i in range(1, m, 1)]
         return r, np.array(E), np.array(h)
 
 
@@ -235,5 +237,19 @@ def test_convergence_wave2d_neumann() -> None:
     assert abs(r[-1] - 2) < 0.05
 
 
-def test_exact_wave2d() -> None:
-    pass
+@pytest.mark.parametrize("m", [1, 2, 3, 4, 5, 10])
+def test_exact_wave2d(m) -> None:
+    sol = Wave2D()
+    solN = Wave2D_Neumann()
+
+    cfl = 1 / np.sqrt(2)
+    # Largest values from convergence test
+    # N = 1000
+    N = 128  # 500  # 300  # 128
+    Nt = 10  # 300  # 160
+    # for m in [4]:
+    dx, EN = solN(N, Nt, cfl=cfl, mx=m, my=m, store_data=-1)
+    assert EN < 1e-12
+
+    _, E = sol(N, Nt, cfl=cfl, mx=m, my=m, store_data=-1)
+    assert E < 1e-11
