@@ -91,32 +91,29 @@ class Poisson2D:
         rightcol = np.arange(self.N, self.N**2 + 1, self.N + 1)
 
         bnds = np.concatenate([toprow, bottomrow, leftcol, rightcol])
-        # B = np.ones((self.N + 1, self.N + 1), dtype=bool)
-        # B[1:-1, 1:-1] = 0
-        # bnds = np.where(B.ravel())[0]
 
         return bnds
 
     def assemble(self) -> tuple[sparse.csr_matrix, np.ndarray]:
         """Return assembled matrix A and right hand side vector b"""
-        A = self.laplace().tolil()
         bnds = self.get_boundary_indices()
-        # for i in bnds:
-        #     A[i, :] = 0
-        #     A[i, i] = 1
+
+        A = self.laplace().tolil()
         A[bnds] = 0
         A[bnds, bnds] = 1
         A = A.tocsr()
 
         F = sp.lambdify((x, y), self.f)(self.xij, self.yij)
+        E = sp.lambdify((x, y), self.ue)(self.xij, self.yij)
         b = F.ravel()
-        b[bnds] = 0
+        b[bnds] = E.ravel()[bnds]
 
         return A, b
 
     def l2_error(self, u: np.ndarray) -> float:
         """Return l2-error norm"""
         ue = sp.lambdify((x, y), self.ue)(self.xij, self.yij)
+
         error = np.sqrt(self.h**2 * np.sum((u - ue) ** 2))
         return error
 
@@ -168,7 +165,7 @@ class Poisson2D:
             np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i])
             for i in range(1, m + 1, 1)
         ]
-        print(E, h)
+
         return r, np.array(E), np.array(h)
 
     def eval(self, x: float, y: float) -> float:
@@ -184,11 +181,18 @@ class Poisson2D:
         The value of u(x, y)
 
         """
-        i = int(x / self.h)
-        j = int(y / self.h)
+        i_low = int(x / self.h)
+        j_low = int(y / self.h)
 
-        print(f"{i=}, {j=}")
-        return self.U[i, j]
+        x_low = i_low * self.h
+        y_low = j_low * self.h
+
+        x_arr = np.array([x_low + self.h - x, x - x_low])
+        y_arr = np.array([y_low + self.h - y, y - y_low])
+        U = self.U[i_low:i_low+2, j_low:j_low+2]  # fmt: skip
+        u = x_arr @ U @ y_arr / (self.h**2)
+
+        return u
 
 
 def test_convergence_poisson2d() -> None:
@@ -196,7 +200,6 @@ def test_convergence_poisson2d() -> None:
     ue = sp.exp(sp.cos(4 * sp.pi * x) * sp.sin(2 * sp.pi * y))
     sol = Poisson2D(1, ue)
     r, *_ = sol.convergence_rates()
-    print(r)
     assert abs(r[-1] - 2) < 1e-2
 
 
