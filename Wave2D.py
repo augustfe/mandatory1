@@ -15,7 +15,16 @@ x, y, t = sp.symbols("x,y,t")
 class Wave2D:
 
     def create_mesh(self, N: int, use_sparse: bool = True) -> None:
-        """Create 2D mesh and store in self.xij and self.yij"""
+        """Create 2D mesh and store in self.xij and self.yij.
+
+        Parameters
+        ----------
+        N : int
+            The number of uniform intervals in each direction
+
+        use_sparse : bool
+            Whether to use a sparse meshgrid, defaults to True
+        """
         # self.xji, self.yij = ...
         xi = np.linspace(0, 1, N + 1)
         yj = np.linspace(0, 1, N + 1)
@@ -25,22 +34,42 @@ class Wave2D:
         self.N = N
 
     def D2(self, N: int) -> sparse.dia_matrix:
-        """Return second order differentiation matrix"""
+        """Set up second order differentiation matrix.
+
+        This version includes Dirichlet boundary conditions
+
+        Parameters
+        ----------
+        N : int
+            The number of uniform intervals in each direction
+
+        Returns
+        -------
+        The differentiation matrix
+        """
         D = diags_array(
             [1, -2, 1],
             offsets=[-1, 0, 1],
             shape=(N + 1, N + 1),
             format="lil",
         )
-        D[0, :4] = [2, -5, 4, -1]
-        D[-1, -4:] = [-1, 4, -5, 2]
-        # D = D.todia()
+        D[0] = 0
+        D[-1] = 0
 
         return D
 
     @property
     def w(self) -> float:
-        """Return the dispersion coefficient"""
+        """The dispersion coefficient.
+
+        The dispersion coefficient was computed analytically from the
+        true solution of the wave equation with Dirichlet conditions.
+
+        Returns
+        -------
+        float
+            The dispersion coefficient
+        """
         kx = sp.pi * self.mx
         ky = sp.pi * self.my
         return sp.sqrt(self.c**2 * (kx**2 + ky**2))
@@ -50,7 +79,7 @@ class Wave2D:
         return sp.sin(mx * sp.pi * x) * sp.sin(my * sp.pi * y) * sp.cos(self.w * t)
 
     def initialize(self, N: int, mx: int, my: int) -> None:
-        r"""Initialize the solution at $U^{n}$ and $U^{n-1}$
+        r"""Initialize the solution at $U^{n}$ and $U^{n-1}$.
 
         Parameters
         ----------
@@ -73,7 +102,7 @@ class Wave2D:
         return self.cfl * self.h / self.c
 
     def l2_error(self, u: np.ndarray, t0: float) -> float:
-        """Return l2-error norm
+        """Return l2-error norm.
 
         Parameters
         ----------
@@ -88,12 +117,10 @@ class Wave2D:
 
         return np.sqrt(np.sum(diff**2) * self.h**2)
 
-    def apply_bcs(self):
-        """Apply Dirichlet boundary conditions"""
-        self.U_next[0] = 0
-        self.U_next[-1] = 0
-        self.U_next[:, -1] = 0
-        self.U_next[:, 0] = 0
+    def apply_bcs(self) -> None:
+        """Apply Dirichlet boundary conditions."""
+        # Boundary conditions are specified directly in D2
+        pass
 
     def __call__(
         self,
@@ -137,12 +164,10 @@ class Wave2D:
         self.create_mesh(N)
 
         self.D = self.D2(N) / self.h**2
+        self.D = self.D.tocsr()
         self.U_next, self.U, self.U_prev = np.zeros((3, N + 1, N + 1))
 
         self.initialize(N, mx, my)
-
-        # courant = self.c * self.dt / self.h
-        # print(courant, self.c, self.dt, self.h)
 
         if store_data > 0:
             data = {0: self.U_prev.copy()}
@@ -155,13 +180,12 @@ class Wave2D:
                 - self.U_prev
                 + (self.c * self.dt) ** 2 * (self.D @ self.U + self.U @ (self.D.T))
             )
-            self.apply_bcs()
 
             self.U_prev[:] = self.U
             self.U[:] = self.U_next
 
             if store_data > 0 and n % store_data == 0:
-                data[n] = self.U.copy()
+                data[n] = self.U_prev.copy()
 
         if store_data > 0:
             return data
@@ -170,7 +194,7 @@ class Wave2D:
 
     def convergence_rates(
         self, m: int = 4, cfl: float = 0.1, Nt: int = 10, mx: int = 3, my: int = 3
-    ):
+    ) -> tuple[list[float], np.ndarray, np.ndarray]:
         """Compute convergence rates for a range of discretizations
 
         Parameters
@@ -207,6 +231,19 @@ class Wave2D:
 class Wave2D_Neumann(Wave2D):
 
     def D2(self, N: int) -> sparse.dia_matrix:
+        """Set up second order differentiation matrix.
+
+        This version includes Neumann boundary conditions
+
+        Parameters
+        ----------
+        N : int
+            The number of uniform intervals in each direction
+
+        Returns
+        -------
+        The differentiation matrix
+        """
         D = diags_array(
             [1, -2, 1],
             offsets=[-1, 0, 1],
@@ -219,9 +256,22 @@ class Wave2D_Neumann(Wave2D):
         return D
 
     def ue(self, mx: int, my: int) -> sp.Expr:
+        """Exact solution with Neumann boundary conditions.
+
+        Parameters
+        ----------
+        mx, my : int
+            Parameters for the wave equation
+
+        Returns
+        -------
+        The exact solution
+        """
         return sp.cos(mx * sp.pi * x) * sp.cos(my * sp.pi * y) * sp.cos(self.w * t)
 
     def apply_bcs(self) -> None:
+        """Apply Neumann boundary conditions."""
+        # Neumann boundary conditions are specified directly in D2
         pass
 
 
@@ -240,16 +290,22 @@ def test_convergence_wave2d_neumann() -> None:
 @pytest.mark.parametrize("m", [1, 2, 3, 4, 5, 10])
 def test_exact_wave2d(m) -> None:
     sol = Wave2D()
-    solN = Wave2D_Neumann()
 
     cfl = 1 / np.sqrt(2)
-    # Largest values from convergence test
-    # N = 1000
-    N = 128  # 500  # 300  # 128
-    Nt = 10  # 300  # 160
-    # for m in [4]:
-    dx, EN = solN(N, Nt, cfl=cfl, mx=m, my=m, store_data=-1)
-    assert EN < 1e-12
+    N = 128
+    Nt = 10
 
     _, E = sol(N, Nt, cfl=cfl, mx=m, my=m, store_data=-1)
-    assert E < 1e-11
+    assert E < 1e-12
+
+
+@pytest.mark.parametrize("m", [1, 2, 3, 4, 5, 10])
+def test_wave2d_neumann(m: int) -> None:
+    sol = Wave2D_Neumann()
+
+    cfl = 1 / np.sqrt(2)
+    N = 128
+    Nt = 10
+
+    _, E = sol(N, Nt, cfl=cfl, mx=m, my=m, store_data=-1)
+    assert E < 1e-12
