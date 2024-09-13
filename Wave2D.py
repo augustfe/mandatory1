@@ -3,10 +3,11 @@ import sympy as sp
 import scipy.sparse as sparse
 from scipy.sparse import diags_array
 
-# import matplotlib.pyplot as plt
-# from matplotlib import cm
+import matplotlib.pyplot as plt
+from matplotlib import cm, animation
 
 from typing import Optional
+from pathlib import Path
 import pytest
 
 x, y, t = sp.symbols("x,y,t")
@@ -309,3 +310,75 @@ def test_wave2d_neumann(m: int) -> None:
 
     _, E = sol(N, Nt, cfl=cfl, mx=m, my=m, store_data=-1)
     assert E < 1e-12
+
+
+def create_gif(
+    solver: Wave2D, filename: Path, style: str = "2D", bc: str = "Dirichlet"
+) -> None:
+
+    N = 256
+    Nt = 256
+    cfl = 1 / np.sqrt(2)
+    mx = 2
+    my = 2
+
+    data = solver(N, Nt, cfl=cfl, mx=mx, my=my, store_data=10)
+
+    xij, yij = solver.xij, solver.yij
+    xij, yij = np.meshgrid(xij, yij, indexing="ij")
+
+    vmin = np.min([val.min() for val in data.values()])
+    vmax = np.max([val.max() for val in data.values()])
+
+    if style == "2D":
+        fig, ax = plt.subplots()
+        frame_func = lambda val: ax.pcolormesh(  # noqa: E731
+            xij,
+            yij,
+            val,
+            cmap=cm.plasma,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        fig.colorbar(frame_func(data[0]))
+
+    else:
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+        frame_func = lambda val: ax.plot_surface(  # noqa: E731
+            xij,
+            yij,
+            val,
+            cmap=cm.plasma,
+            vmin=vmin,
+            vmax=vmax,
+        )
+
+    ax.set_title(f"Wave Equation with {name} BCs")
+    ax.set_xlabel("$x$")
+    ax.set_ylabel("$y$")
+    frames = []
+
+    for n, val in data.items():
+        frame = frame_func(val)
+        frames.append([frame])
+
+    path = filename.with_name(
+        filename.stem + f"_{bc.lower()}_{style}" + filename.suffix
+    )
+
+    ani = animation.ArtistAnimation(
+        fig,
+        frames,
+        interval=400,
+        blit=True,  # repeat_delay=1000
+    )
+    ani.save(path, writer="pillow", fps=10)
+
+
+if __name__ == "__main__":
+    dir = Path("report")
+
+    for solver, name in zip([Wave2D(), Wave2D_Neumann()], ["Dirichlet", "Neumann"]):
+        for style in ["2D", "3D"]:
+            path = dir / "Wave.gif"
+            create_gif(solver, path, style=style, bc=name)
